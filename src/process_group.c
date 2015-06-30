@@ -2,7 +2,7 @@
  *
  * cpulimit - a CPU limiter for Linux
  *
- * Copyright (C) 2005-2012, by:  Angelo Marletta <angelo dot marletta at gmail dot com> 
+ * Copyright (C) 2005-2012, by:  Angelo Marletta <angelo dot marletta at gmail dot com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,6 +30,13 @@
 #include "process_iterator.h"
 #include "process_group.h"
 #include "list.h"
+
+#ifdef __APPLE__
+#include <libgen.h>
+#endif
+#ifdef __FREEBSD__
+#include <libgen.h>
+#endif
 
 // look for a process by pid
 // search_pid   : pid of the wanted process
