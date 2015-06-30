@@ -43,8 +43,15 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#include "process_group.h"
+#ifdef __APPLE__
+#include <libgen.h>
+#elif defined __FREEBSD__
+#include <libgen.h>
+#endif
+
+#include "battery.h"
 #include "list.h"
+#include "process_group.h"
 
 #ifdef HAVE_SYS_SYSINFO_H
 #include <sys/sysinfo.h>
@@ -87,6 +94,8 @@ int NCPU;
 int verbose = 0;
 //lazy mode (exits if there is no process)
 int lazy = 0;
+//only run when battery charging or full
+struct battery_status battery;
 
 //SIGINT and SIGTERM signal handler
 static void quit(int sig)
@@ -121,6 +130,9 @@ static void print_usage(FILE *stream, int exit_code)
 	fprintf(stream, "      -v, --verbose          show control statistics\n");
 	fprintf(stream, "      -z, --lazy             exit if there is no target process, or if it dies\n");
 	fprintf(stream, "      -i, --include-children limit also the children processes\n");
+#ifdef __APPLE__
+	fprintf(stream, "      -b, --battery=S        only process when battery is CHARGED or FULL\n");
+#endif
 	fprintf(stream, "      -h, --help             display this help and exit\n");
 	fprintf(stream, "   TARGET must be exactly one of these:\n");
 	fprintf(stream, "      -p, --pid=N            pid of the process (implies -z)\n");
@@ -195,7 +207,7 @@ void limit_process(pid_t pid, double limit, int include_children)
 	memset(&tsleep, 0, sizeof(struct timespec));
 	memset(&startwork, 0, sizeof(struct timeval));
 	memset(&endwork, 0, sizeof(struct timeval));
-	//last working time in microseconds
+    //last working time in microseconds
 	unsigned long workingtime = 0;
 	//generic list item
 	struct list_node *node;
@@ -213,7 +225,7 @@ void limit_process(pid_t pid, double limit, int include_children)
 	//rate at which we are keeping active the processes (range 0-1)
 	//1 means that the process are using all the twork slice
 	double workingrate = -1;
-	while(1) {
+    while(1) {
 		update_process_group(&pgroup);
 
 		if (pgroup.proclist->count==0) {
@@ -235,8 +247,11 @@ void limit_process(pid_t pid, double limit, int include_children)
 			pcpu += proc->cpu_usage;
 		}
 
+        const int pause = battery_pause(&battery);
 		//adjust work and sleep time slices
-		if (pcpu < 0) {
+        if (pause) {
+            twork.tv_nsec = 0;
+        } else if (pcpu < 0) {
 			//it's the 1st cycle, initialize workingrate
 			pcpu = limit;
 			workingrate = limit;
@@ -250,9 +265,13 @@ void limit_process(pid_t pid, double limit, int include_children)
 		tsleep.tv_nsec = TIME_SLOT * 1000 - twork.tv_nsec;
 
 		if (verbose) {
-			if (c%200==0)
-				printf("\n%%CPU\twork quantum\tsleep quantum\tactive rate\n");
-			if (c%10==0 && c>0)
+			if (c%200==0) {
+                if (pause)
+                    printf("\nPaused pending battery charge\n");
+                else
+                    printf("\n%%CPU\twork quantum\tsleep quantum\tactive rate\n");
+            }
+			if (!pause && c%10==0 && c>0)
 				printf("%0.2lf%%\t%6ld us\t%6ld us\t%0.2lf%%\n", pcpu*100, twork.tv_nsec/1000, tsleep.tv_nsec/1000, workingrate*100);
 		}
 
@@ -330,9 +349,10 @@ int main(int argc, char **argv) {
 	int next_option;
     int option_index = 0;
 	//A string listing valid short options letters
-	const char* short_options = "+p:e:l:vzih";
+	const char* short_options = "+b:p:e:l:vzih";
 	//An array describing valid long options
 	const struct option long_options[] = {
+        { "battery",    required_argument, NULL, 'b' },
 		{ "pid",        required_argument, NULL, 'p' },
 		{ "exe",        required_argument, NULL, 'e' },
 		{ "limit",      required_argument, NULL, 'l' },
@@ -343,9 +363,19 @@ int main(int argc, char **argv) {
 		{ 0,            0,                 0,     0  }
 	};
 
+    memset(&battery, 0, sizeof(battery));
+
 	do {
 		next_option = getopt_long(argc, argv, short_options,long_options, &option_index);
 		switch(next_option) {
+            case 'b':
+                if (!strcmp(optarg, "CHARGING"))
+                    battery.mode = BATTERY_CHARGING;
+                else if (!strcmp(optarg, "FULL"))
+                    battery.mode = BATTERY_FULL;
+                else
+                    fprintf(stderr,"Error: Ignoring unrecognised battery argument '%s'\n", optarg);
+                break;
 			case 'p':
 				pid = atoi(optarg);
 				pid_ok = 1;
