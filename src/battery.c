@@ -32,6 +32,7 @@
 #include <sys/time.h>
 #include "battery.h"
 
+#ifdef __APPLE__
 static const unsigned SAMPLE_USECS = 1000 * 1000;
 
 //return t1-t2 in microseconds (no overflow checks, so better watch out!)
@@ -144,3 +145,45 @@ int battery_pause(struct battery_status *status)
     status->pause = parse_ioreg(name, &status->pause);
     return status->pause;
 }
+#endif
+
+#ifdef __linux__
+int battery_pause(struct battery_status *status)
+{
+    const char *name = NULL;
+    switch (status->mode) {
+    default: // fall-through if mode isn't valid
+    case BATTERY_IGNORED:
+        return 0;
+    case BATTERY_CHARGING:
+        name = "Charging\n"; // FIXME: confirm ...
+        break;
+    case BATTERY_FULL:
+        name = "Full\n";
+        break;
+    }
+
+    FILE * f = fopen("/sys/class/power_supply/BAT0/status", "r");
+    if (!f)
+        return 0;
+
+    int pause = 1;
+    {
+        char buf[16];
+        if (buf == fgets(buf, sizeof(buf), f) && !strcmp(name, buf)) {
+            pause = 0;
+        }
+    }
+    fclose(f);
+
+
+    return pause;
+}
+#endif
+
+#ifndef BATTERY_SUPPORT
+int battery_pause(struct battery_status *ignored)
+{
+    return 0;
+}
+#endif

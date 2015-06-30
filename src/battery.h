@@ -23,14 +23,22 @@
 
 #define __BATTERY__
 
+#ifdef __APPLE__
+#define BATTERY_SUPPORT 1
+#elif defined __linux__
+#define BATTERY_SUPPORT 1
+#endif // __APPLE__
+
 enum battery_mode {BATTERY_IGNORED = 0, BATTERY_CHARGING, BATTERY_FULL};
 
 struct battery_status {
     enum battery_mode mode; //mode requested on command line
+#ifdef __APPLE__
     char pause;             //non-zero if cpu should be paused
     struct timeval latest;  //time of last battery sample (avoid excessive tests)
+#endif // __APPLE__
 };
 
 int battery_pause(struct battery_status*);
 
-#endif
+#endif // __BATTERY__

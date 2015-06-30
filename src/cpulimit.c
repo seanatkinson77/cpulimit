@@ -45,6 +45,7 @@
 
 #ifdef __APPLE__
 #include <libgen.h>
+#include "memrchr.c"
 #elif defined __FREEBSD__
 #include <libgen.h>
 #endif
@@ -55,10 +56,6 @@
 
 #ifdef HAVE_SYS_SYSINFO_H
 #include <sys/sysinfo.h>
-#endif
-
-#ifdef __APPLE__
-#include "memrchr.c"
 #endif
 
 //some useful macro
@@ -130,7 +127,7 @@ static void print_usage(FILE *stream, int exit_code)
 	fprintf(stream, "      -v, --verbose          show control statistics\n");
 	fprintf(stream, "      -z, --lazy             exit if there is no target process, or if it dies\n");
 	fprintf(stream, "      -i, --include-children limit also the children processes\n");
-#ifdef __APPLE__
+#ifdef BATTERY_SUPPORT
 	fprintf(stream, "      -b, --battery=S        only process when battery is CHARGED or FULL\n");
 #endif
 	fprintf(stream, "      -h, --help             display this help and exit\n");
