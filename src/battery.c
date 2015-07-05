@@ -119,13 +119,11 @@ static char parse_ioreg(const char *phrase, const char *pause)
     if (!*pause) {
         fprintf(stderr, "Waiting for battery status change ...\n");
     }
-    return 1;
+    return 1; // FIXME: should return no pause when battery full but charging requested!
 }
 
 int battery_pause(struct battery_status *status)
 {
-    // fprintf(stderr, "battery_pause() mode %i\n", status->mode);
-
     const char *name = NULL;
     switch (status->mode) {
     default: // fall-through if mode isn't valid
@@ -150,34 +148,29 @@ int battery_pause(struct battery_status *status)
 #ifdef __linux__
 int battery_pause(struct battery_status *status)
 {
-    const char *name = NULL;
-    switch (status->mode) {
-    default: // fall-through if mode isn't valid
-    case BATTERY_IGNORED:
+    if (status->mode == BATTERY_IGNORED)
         return 0;
-    case BATTERY_CHARGING:
-        name = "Charging\n"; // FIXME: confirm ...
-        break;
-    case BATTERY_FULL:
-        name = "Full\n";
-        break;
-    }
 
     FILE * f = fopen("/sys/class/power_supply/BAT0/status", "r");
     if (!f)
         return 0;
 
-    int pause = 1;
+    enum battery_mode mode = BATTERY_IGNORED;
     {
         char buf[16];
-        if (buf == fgets(buf, sizeof(buf), f) && !strcmp(name, buf)) {
-            pause = 0;
-        }
+        if (buf != fgets(buf, sizeof(buf), f))
+            return 0;
+        fclose(f);
+
+        if (!strcmp("Charging\n", buf))
+            mode = BATTERY_CHARGING;
+        else if (!strcmp("Full\n", buf))
+            mode = BATTERY_FULL;
+        else if (strcmp("Discharging\n", buf))
+            fprintf(stderr, "Ignoring unknown battery status %s", buf); // buf includes new line
     }
-    fclose(f);
 
-
-    return pause;
+    return mode >= status->mode; // e.g. return true when full but charging requested
 }
 #endif
 
