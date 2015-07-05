@@ -128,7 +128,7 @@ static void print_usage(FILE *stream, int exit_code)
 	fprintf(stream, "      -z, --lazy             exit if there is no target process, or if it dies\n");
 	fprintf(stream, "      -i, --include-children limit also the children processes\n");
 #ifdef BATTERY_SUPPORT
-	fprintf(stream, "      -b, --battery=S        only process when battery is CHARGED or FULL\n");
+	fprintf(stream, "      -b, --battery=S        only process when battery is CHARGING or FULL\n");
 #endif
 	fprintf(stream, "      -h, --help             display this help and exit\n");
 	fprintf(stream, "   TARGET must be exactly one of these:\n");
