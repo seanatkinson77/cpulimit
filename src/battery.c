@@ -47,7 +47,6 @@ static int wait_timeval(struct timeval *tv)
     gettimeofday(&tmp, NULL);
 
     const unsigned long usecs = timediff(&tmp, tv);
-    // fprintf(stderr, "wait_timeval() %lu\n", usecs);
 
     if (usecs > SAMPLE_USECS)
         return 1;
@@ -56,94 +55,55 @@ static int wait_timeval(struct timeval *tv)
     return 0;
 }
 
-static char parse_ioreg(const char *phrase, const char *pause)
+int battery_pause(struct battery_status *status)
 {
+    if (status->mode == BATTERY_IGNORED)
+        return 0;
+    else if (!wait_timeval(&status->latest)) {
+        return status->pause != 0; // skip new sample, use last status
+    }
+
     FILE *stream = popen("ioreg -c AppleSmartBattery -w0", "r");
     if (!stream) {
         perror("popen");
         return 0;
     }
 
-    // unsigned reads = 0;
-    unsigned yes = 0, no = 0;
+    enum battery_mode mode = BATTERY_IGNORED;
     while (1) {
-        char value[4];
-        {
-            char key[32];
-            const int n = fscanf(stream, "\"%31[^\"]\" = %3s", (char*)&key, (char*)&value);
-            // ++reads;
-            // fprintf(stderr, "parse_ioreg() fscanf %i %u\n", n, reads);
-            if (n == EOF) {
-                // fprintf(stderr, "parse_ioreg() EOF\n");
+        //     | |           "ExternalConnected" = Yes
+        char key[256], value[4];
+        const int n = fscanf(stream, "    | |           \"%255[^\"]\" = %3s", (char*)&key, (char*)&value);
+        if (n == EOF) {
+            break;
+        } else if (n != 2) {
+            if (fgets(key, sizeof(key), stream) != key)
                 break;
-            } else if (n != 2) {
-                // fprintf(stderr, "Unexpected match count %i for ioreg\n", n);
-                fgetc(stream);
+            else
                 continue;
-            } else if (strcmp(phrase, key)) {
-                fgetc(stream);
-                continue;
-            }
         }
-
-        // fprintf(stderr, "parse_ioreg() '%s' '%s'\n", phrase, value);
-
-        if (!strcmp("Yes", value)) {
-            ++yes;
-        } else if (!strcmp("No", value)) {
-            no += 1;
+        if (!strcmp("No", value)) {
+            continue; // ignore negative values
+        } else if (strcmp("Yes", value)) {
+            continue; // skip unexepected values
+        } else if (!strcmp("ExternalConnected", key) && mode != BATTERY_FULL) {
+            mode = BATTERY_CHARGING;
+        } else if (!strcmp("FullyCharged", key)) {
+            mode = BATTERY_FULL;
         } else {
-            fprintf(stderr, "Unexpected value '%s' from ioreg for '%s'\n", value, phrase);
             continue;
         }
-        // fprintf(stderr, "A yes %u, no %u %p\n", yes, blah, &blah);
     }
-
-    // fprintf(stderr, "B yes %u, no %u %p\n", yes, blah, &blah);
 
     if (pclose(stream)) {
         perror("pclose");
         return 0;
     }
 
-    if (yes + no != 1) {
-        fprintf(stderr, "Ignoring unexpected counts from ioreg for '%s': %u yes, %u no\n", phrase, yes, no);
-        return 0;
-    } else if (yes) {
-        if (*pause)
-            fprintf(stderr, "Detected battery status change\n");
-        return 0;
-    } // no == 1, yes == 0
-
-    // fprintf(stderr, "parse_ioreg() sleeping\n");
-    if (!*pause) {
-        fprintf(stderr, "Waiting for battery status change ...\n");
-    }
-    return 1; // FIXME: should return no pause when battery full but charging requested!
-}
-
-int battery_pause(struct battery_status *status)
-{
-    const char *name = NULL;
-    switch (status->mode) {
-    default: // fall-through if mode isn't valid
-    case BATTERY_IGNORED:
-        return 0;
-    case BATTERY_CHARGING:
-        name = "ExternalConnected";
-        break;
-    case BATTERY_FULL:
-        name = "FullyCharged";
-        break;
-    }
-
-    if (!wait_timeval(&status->latest))
-        return status->pause != 0; // skip new sample, use last status
-
-    status->pause = parse_ioreg(name, &status->pause);
+    status->pause = (mode < status->mode);
     return status->pause;
 }
-#endif
+#endif // __APPLE__
 
 #ifdef __linux__
 int battery_pause(struct battery_status *status)
@@ -172,7 +132,7 @@ int battery_pause(struct battery_status *status)
 
     return mode >= status->mode; // e.g. return true when full but charging requested
 }
-#endif
+#endif // __linux__
 
 #ifndef BATTERY_SUPPORT
 int battery_pause(struct battery_status *ignored)
